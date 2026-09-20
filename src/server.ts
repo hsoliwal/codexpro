@@ -24,6 +24,16 @@ import { fleetCapabilityContract } from "./fleetInvariants.js";
 import { camelDagContract, runCamelDag } from "./camelDagOps.js";
 import { chrome2ApiContract } from "./chrome2ApiContract.js";
 import { chrome2ApiStatus, completeWithChrome2Api } from "./chrome2ApiOps.js";
+import {
+  chromeSummarizerContract,
+  SUMMARY_FORMATS,
+  SUMMARY_LANGUAGES,
+  SUMMARY_LENGTHS,
+  SUMMARY_PREFERENCES,
+  SUMMARY_TYPES
+} from "./chromeSummarizerContract.js";
+import { summarizeWithChrome2Api } from "./chromeSummarizerOps.js";
+import { CHROME_DOCUMENT_LIMITS, summarizeDocumentWithChrome2Api } from "./chromeDocumentSummarizer.js";
 
 const STRUCTURED_STRING_MAX_CHARS = 30_000;
 
@@ -970,15 +980,29 @@ export function createCodexProServer(
     {
       title: "Bounded CPU Fabric",
       description:
-        "Inspect recursive fleet invariants, execute a bounded Camel/KIE CPU plan, or use the bounded loopback Chrome2api text-inference lane.",
+        "Inspect recursive fleet invariants, execute a bounded Camel/KIE CPU plan, or use bounded loopback Chrome2api completion and Chrome Summarizer-compatible lanes.",
       inputSchema: {
-        action: z.enum(["invariants", "dag_contract", "dag_execute", "chrome_contract", "chrome_status", "chrome_complete"])
+        action: z.enum(["invariants", "dag_contract", "dag_execute", "chrome_contract", "chrome_status", "chrome_complete", "chrome_summarizer_contract", "chrome_summarize", "chrome_summarize_document"])
           .describe("Inspect a contract/status, execute one admitted CPU plan, or request one local ChromeML text completion."),
+        workspace_id: z.string().optional().describe("For chrome_summarize_document: workspace containing the source document."),
+        document_path: z.string().min(1).optional().describe("For chrome_summarize_document: text file path inside the selected workspace."),
+        chunk_bytes: z.number().int().min(CHROME_DOCUMENT_LIMITS.minChunkBytes).max(CHROME_DOCUMENT_LIMITS.maxChunkBytes).optional()
+          .describe("For chrome_summarize_document: deterministic maximum UTF-8 bytes per source chunk. Default: 48000."),
         dag_json: z.string().min(2).max(1_000_000).optional().describe("For dag_execute: JSON with planId and items [{id, capability, payload}]."),
         prompt: z.string().min(1).max(65_536).optional().describe("For chrome_complete: bounded text prompt. Media and local file paths are not accepted."),
         system: z.string().max(16_384).optional().describe("For chrome_complete: optional bounded system instruction."),
         max_tokens: z.number().int().min(1).max(2_048).optional().describe("For chrome_complete: maximum output tokens. Default: 256."),
         temperature: z.number().min(0).max(2).optional().describe("For chrome_complete: sampling temperature. Default: 0.2."),
+        summary_text: z.string().min(1).max(60_000).optional().describe("For chrome_summarize: source text. The byte limit is enforced separately."),
+        summary_type: z.enum(SUMMARY_TYPES).optional().describe("Chrome summary type. Default: key-points."),
+        summary_format: z.enum(SUMMARY_FORMATS).optional().describe("Chrome summary format. Default: markdown."),
+        summary_length: z.enum(SUMMARY_LENGTHS).optional().describe("Chrome summary length. Default: short."),
+        summary_preference: z.enum(SUMMARY_PREFERENCES).optional().describe("Chrome execution preference. Default: auto."),
+        shared_context: z.string().max(4_096).optional().describe("Session-wide summarization context."),
+        context: z.string().max(4_096).optional().describe("Per-summary context."),
+        expected_input_languages: z.array(z.enum(SUMMARY_LANGUAGES)).max(5).optional().describe("Expected source languages."),
+        output_language: z.enum(SUMMARY_LANGUAGES).optional().describe("Requested summary language."),
+        expected_context_languages: z.array(z.enum(SUMMARY_LANGUAGES)).max(5).optional().describe("Expected context languages."),
         timeout_ms: z.number().int().min(2_000).max(120_000).optional().describe("Execution deadline. Default: 120000 ms.")
       },
       annotations: READ_ONLY_ANNOTATIONS
@@ -1009,6 +1033,61 @@ export function createCodexProServer(
         return textResult(
           `# Chrome2api Status\n\nReady: ${status.ready}\nModel: ${status.required_model}\nLatency: ${status.latency_ms} ms`,
           status as unknown as Record<string, unknown>
+        );
+      }
+      if (args.action === "chrome_summarizer_contract") {
+        const contract = chromeSummarizerContract();
+        return textResult(
+          `# Chrome Summarizer Contract\n\nBackend: ${contract.backend}\nTypes: ${contract.options.type.join(", ")}\nFormats: ${contract.options.format.join(", ")}\nLengths: ${contract.options.length.join(", ")}`,
+          contract as unknown as Record<string, unknown>
+        );
+      }
+      if (args.action === "chrome_summarize") {
+        if (!args.summary_text) throw new CodexProError("fabric chrome_summarize requires summary_text.");
+        const receipt = await summarizeWithChrome2Api({
+          text: String(args.summary_text),
+          type: args.summary_type,
+          format: args.summary_format,
+          length: args.summary_length,
+          preference: args.summary_preference,
+          sharedContext: args.shared_context,
+          context: args.context,
+          expectedInputLanguages: args.expected_input_languages,
+          outputLanguage: args.output_language,
+          expectedContextLanguages: args.expected_context_languages,
+          timeoutMs: args.timeout_ms === undefined ? 120_000 : Number(args.timeout_ms)
+        });
+        return textResult(
+          `# Chrome Summary\n\n${receipt.summary}\n\nReceipt: ${receipt.receipt_root}`,
+          receipt as unknown as Record<string, unknown>
+        );
+      }
+      if (args.action === "chrome_summarize_document") {
+        if (!args.document_path) throw new CodexProError("fabric chrome_summarize_document requires document_path.");
+        const workspace = workspaces.getWorkspace(args.workspace_id);
+        const resolved = guard.resolve(workspace, String(args.document_path));
+        await guard.assertTextFile(resolved.absPath, CHROME_DOCUMENT_LIMITS.maxDocumentBytes);
+        const bytes = await fsp.readFile(resolved.absPath);
+        const source = bytes.toString("utf8");
+        if (!Buffer.from(source, "utf8").equals(bytes)) throw new CodexProError("Chrome document must be valid UTF-8 text.");
+        const receipt = await summarizeDocumentWithChrome2Api({
+          text: source,
+          documentId: resolved.relPath,
+          chunkBytes: args.chunk_bytes,
+          type: args.summary_type,
+          format: args.summary_format,
+          length: args.summary_length,
+          preference: args.summary_preference,
+          sharedContext: args.shared_context,
+          context: args.context,
+          expectedInputLanguages: args.expected_input_languages,
+          outputLanguage: args.output_language,
+          expectedContextLanguages: args.expected_context_languages,
+          timeoutMs: args.timeout_ms === undefined ? 120_000 : Number(args.timeout_ms)
+        });
+        return textResult(
+          `# Chrome Document Summary\n\n${receipt.final.summary}\n\nChunks: ${receipt.source_chunks.length}\nReceipt: ${receipt.receipt_root}`,
+          receipt as unknown as Record<string, unknown>
         );
       }
       if (args.action === "chrome_complete") {

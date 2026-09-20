@@ -44,6 +44,13 @@ The existing `fabric` tool provides:
   `chrome-gemini-nano` is advertised.
 - `chrome_complete` - sends one non-streaming text completion and returns a
   deterministic receipt binding the admitted request and returned text.
+- `chrome_summarizer_contract` - reports the documented Chrome Summarizer
+  option/lifecycle surface and identifies the active compatibility backend.
+- `chrome_summarize` - executes a bounded local summary through Chrome2api and
+  binds the source, normalized options, provider result, and final summary.
+- `chrome_summarize_document` - reads a text file inside an admitted workspace
+  and runs deterministic chunk/map/reduce summarization for documents up to
+  2,000,000 UTF-8 bytes.
 
 Example arguments:
 
@@ -57,6 +64,99 @@ Example arguments:
   "timeout_ms": 120000
 }
 ```
+
+## Chrome Summarizer compatibility
+
+Chrome's [native Summarizer API](https://developer.chrome.com/docs/ai/summarizer-api)
+runs in a top-level browser window or an admitted iframe; it is not currently
+available in Web Workers. CodexPro is a Node MCP server, so it does not pretend
+that its server-side adapter is the native `Summarizer` global. Instead, it
+adapts the complete documented option vocabulary to the existing local
+Chrome2api/Gemini Nano lane:
+
+| Option | Admitted values |
+| --- | --- |
+| `summary_type` | `key-points`, `tldr`, `teaser`, `headline` |
+| `summary_format` | `markdown`, `plain-text` |
+| `summary_length` | `short`, `medium`, `long` |
+| `summary_preference` | `auto`, `speed`, `capability` |
+| language hints | `en`, `ja`, `es`, `de`, `fr` |
+
+It also supports `shared_context`, per-call `context`, expected input/context
+languages, and an output language. The compatibility backend is batch-only;
+the contract records that native Chrome also documents streaming, availability
+states, user-activated model downloads, and `downloadprogress` monitoring.
+
+Example:
+
+```json
+{
+  "action": "chrome_summarize",
+  "summary_text": "Long source text...",
+  "summary_type": "key-points",
+  "summary_format": "markdown",
+  "summary_length": "medium",
+  "summary_preference": "capability",
+  "shared_context": "This is a technical design document.",
+  "context": "Focus on operational risks.",
+  "expected_input_languages": ["en"],
+  "output_language": "en",
+  "expected_context_languages": ["en"],
+  "timeout_ms": 120000
+}
+```
+
+The adapter follows Chrome's documented maximum shapes: TLDR/teaser summaries
+use up to 1/3/5 sentences, key-points use up to 3/5/7 bullets, and headlines
+use up to 12/17/22 words for short/medium/long respectively. These constraints
+are instructions to the local model; generated text remains untrusted output.
+
+`summary_preference` and language fields are advisory on the compatibility
+backend because Chrome2api exposes one fixed local model. They are normalized,
+bound into the receipt, and supplied to the model, but CodexPro does not claim
+that they select a different native execution lane.
+
+### Large Markdown and text documents
+
+Use `chrome_summarize_document` after opening the containing directory as a
+CodexPro workspace:
+
+```json
+{
+  "action": "chrome_summarize_document",
+  "workspace_id": "downloads",
+  "document_path": "ChatGPT-Chrome AI MCP Architecture-20260910-1107.md",
+  "summary_type": "key-points",
+  "summary_format": "markdown",
+  "summary_length": "long",
+  "summary_preference": "speed",
+  "expected_input_languages": ["en"],
+  "output_language": "en"
+}
+```
+
+The CPU leaf partitions canonical UTF-8 bytes at paragraph, line, or sentence
+boundaries, records every exact `[start_byte,end_byte)` span and SHA-256, and
+proves that the chunks reconstruct the input exactly. It then uses
+`tldr/plain-text/long` map summaries, a maximum of six reduction levels, and
+one requested final summary. Canonical source identity never depends on a
+browser/model quota. The source is capped at 2 MB, chunks at 48 KB, and chunk
+count at 64. All generated text has `authority_ceiling=CANDIDATE_ONLY`.
+
+This adapts Chrome's documented
+[summary-of-summaries](https://developer.chrome.com/docs/ai/scale-summarization)
+pattern while addressing its stated accuracy risk with exact source manifests,
+bounded recursion, deterministic grouping, and explicit receipts.
+
+Before spending model calls, inventory and deduplicate a top-level Markdown
+corpus mechanically:
+
+```powershell
+npm run chrome-ai:corpus -- E:\Downloads
+```
+
+The checker selects case-sensitive `*AI*.md`, verifies UTF-8 and exact chunk
+reconstruction, and emits file/content/chunk roots without copying source text.
 
 ## Enforced boundary
 

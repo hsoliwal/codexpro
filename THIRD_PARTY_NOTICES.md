@@ -46,3 +46,29 @@ contract. No Chrome2api source, executable, Chrome runtime DLL, model weight,
 cookie, or browser profile is copied or redistributed. The donor's wildcard
 CORS, ignored bearer token, and local-file media inputs are intentionally not
 exposed through CodexPro.
+
+## Chrome Summarizer guidance and extension sample
+
+- Guidance: `GoogleChrome/modern-web-guidance`, commit
+  `66351a783bf1319a1d832f5544f9700098b1047d`
+- Sample: `GoogleChrome/chrome-extensions-samples`, commit
+  `44de5942b3232d554c0840ba270aedf413d49c62`
+- License: Apache-2.0
+
+CodexPro adapts the public option vocabulary and lifecycle semantics for its
+bounded local summarization contract. No Google sample code is copied. The
+backend is explicitly identified as a Chrome2api compatibility adapter, not as
+the native browser `Summarizer` global.
+
+## Chrome summary-of-summaries demo and LangChain text splitter
+
+- Demo: `GoogleChromeLabs/web-ai-demos`, commit
+  `8d90f165f1b786b4bf65ad1cfe517a022a5fe1a6`
+- Text-splitter reference: `langchain-ai/langchainjs`, commit
+  `bd44054c8b269e17dc4296218f9eb9897811ce08`
+- Licenses: Apache-2.0 (demo), MIT (LangChain.js)
+
+CodexPro adapts the documented map-then-reduce lifecycle for large documents.
+No donor source is copied. The project-owned gap preserves canonical UTF-8 byte
+ranges and source roots, caps recursion, and treats every generated summary as
+candidate-only output.
