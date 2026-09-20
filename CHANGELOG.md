@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added bounded Chrome Summarizer-compatible corpus execution: safe top-level
+  workspace globs, 64-document / 8-MB caps, exact-content deduplication,
+  per-path alias receipts, and deterministic unique-content execution order.
+- Added bounded process-local summary reuse with concurrent request joining;
+  cache diagnostics never affect semantic receipt identity and failures are not
+  cached.
 - Hardened local handoff receipts: interruptions are recorded as non-terminal `interrupting` and terminal `interrupted` states only after child exit; stale in-flight receipts become `orphaned` only when recorded processes are gone and require reconciliation.
 - Blocked standard Git/GitHub remote mutation paths inside local handoff executors by default; `--allow-remote-mutations` is an explicit opt-in for authorized workflows.
 - Added explicit Windows Bash runtime selection: `auto` prefers Git for Windows and never silently falls back to WSL; WSL requires `CODEXPRO_BASH_RUNTIME=wsl`.

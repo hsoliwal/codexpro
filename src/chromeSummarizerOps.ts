@@ -1,6 +1,12 @@
-import { canonicalRoot } from "./chrome2ApiContract.js";
+import { BoundedAsyncCache } from "./boundedAsyncCache.js";
+import { canonicalRoot, resolveChrome2ApiUrl } from "./chrome2ApiContract.js";
 import { completeWithChrome2Api } from "./chrome2ApiOps.js";
-import { CHROME_SUMMARY_LIMITS, type ChromeSummaryInput, normalizeChromeSummary } from "./chromeSummarizerContract.js";
+import {
+  CHROME_SUMMARY_CACHE_LIMITS,
+  CHROME_SUMMARY_LIMITS,
+  type ChromeSummaryInput,
+  normalizeChromeSummary
+} from "./chromeSummarizerContract.js";
 import { CodexProError } from "./guard.js";
 
 const TYPE_DIRECTIVES = {
@@ -23,6 +29,34 @@ const TOKEN_LIMITS = {
   "key-points": { short: 192, medium: 320, long: 448 },
   headline: { short: 48, medium: 64, long: 80 }
 } as const;
+
+interface ChromeSummaryCoreReceipt {
+  schema: "codexpro.chrome-summarizer.receipt.v1";
+  backend: "chrome2api-summarizer-compat";
+  native_browser_api: false;
+  options: {
+    type: string;
+    format: string;
+    length: string;
+    preference: string;
+    shared_context: string | null;
+    context: string | null;
+    expected_input_languages: string[];
+    output_language: string | null;
+    expected_context_languages: string[];
+  };
+  summary: string;
+  source_root: string;
+  options_root: string;
+  summary_root: string;
+  provider_receipt_root: string;
+  receipt_root: string;
+}
+
+const summaryCache = new BoundedAsyncCache<ChromeSummaryCoreReceipt>(
+  CHROME_SUMMARY_CACHE_LIMITS.maxEntries,
+  CHROME_SUMMARY_CACHE_LIMITS.maxBytes
+);
 
 function compileSystem(options: ReturnType<typeof normalizeChromeSummary>): string {
   const lines = [
@@ -57,42 +91,55 @@ export async function summarizeWithChrome2Api(input: ChromeSummaryInput, env: No
     options.expectedContextLanguages.join(",")
   ];
   const optionsRoot = canonicalRoot("codexpro.chrome-summarizer.options.v1", optionFields);
-  const provider = await completeWithChrome2Api({
-    prompt: `Summarize this source text:\n\n${options.text}`,
-    system: compileSystem(options),
-    maxTokens: TOKEN_LIMITS[options.type][options.length],
-    temperature: 0,
-    timeoutMs: options.timeoutMs
-  }, env);
-  const summaryRoot = canonicalRoot("codexpro.chrome-summarizer.output.v1", [provider.content]);
-  if (Buffer.byteLength(provider.content, "utf8") > CHROME_SUMMARY_LIMITS.maxTextBytes) {
-    throw new CodexProError(`Chrome summarizer output exceeds ${CHROME_SUMMARY_LIMITS.maxTextBytes} UTF-8 bytes.`);
-  }
+  const endpoint = resolveChrome2ApiUrl(env).toString().replace(/\/$/, "");
+  const cacheKey = canonicalRoot("codexpro.chrome-summarizer.cache-key.v1", [endpoint, sourceRoot, optionsRoot]);
+  const cached = await summaryCache.getOrCompute(cacheKey, async () => {
+    const provider = await completeWithChrome2Api({
+      prompt: `Summarize this source text:\n\n${options.text}`,
+      system: compileSystem(options),
+      maxTokens: TOKEN_LIMITS[options.type][options.length],
+      temperature: 0,
+      timeoutMs: options.timeoutMs
+    }, env);
+    const summaryRoot = canonicalRoot("codexpro.chrome-summarizer.output.v1", [provider.content]);
+    if (Buffer.byteLength(provider.content, "utf8") > CHROME_SUMMARY_LIMITS.maxTextBytes) {
+      throw new CodexProError(`Chrome summarizer output exceeds ${CHROME_SUMMARY_LIMITS.maxTextBytes} UTF-8 bytes.`);
+    }
+    return {
+      schema: "codexpro.chrome-summarizer.receipt.v1",
+      backend: "chrome2api-summarizer-compat",
+      native_browser_api: false,
+      options: {
+        type: options.type,
+        format: options.format,
+        length: options.length,
+        preference: options.preference,
+        shared_context: options.sharedContext || null,
+        context: options.context || null,
+        expected_input_languages: options.expectedInputLanguages,
+        output_language: options.outputLanguage || null,
+        expected_context_languages: options.expectedContextLanguages
+      },
+      summary: provider.content,
+      source_root: sourceRoot,
+      options_root: optionsRoot,
+      summary_root: summaryRoot,
+      provider_receipt_root: provider.receipt_root,
+      receipt_root: canonicalRoot("codexpro.chrome-summarizer.receipt.v1", [
+        sourceRoot,
+        optionsRoot,
+        summaryRoot,
+        provider.receipt_root
+      ])
+    };
+  });
   return {
-    schema: "codexpro.chrome-summarizer.receipt.v1",
-    backend: "chrome2api-summarizer-compat",
-    native_browser_api: false,
-    options: {
-      type: options.type,
-      format: options.format,
-      length: options.length,
-      preference: options.preference,
-      shared_context: options.sharedContext || null,
-      context: options.context || null,
-      expected_input_languages: options.expectedInputLanguages,
-      output_language: options.outputLanguage || null,
-      expected_context_languages: options.expectedContextLanguages
-    },
-    summary: provider.content,
-    source_root: sourceRoot,
-    options_root: optionsRoot,
-    summary_root: summaryRoot,
-    provider_receipt_root: provider.receipt_root,
-    receipt_root: canonicalRoot("codexpro.chrome-summarizer.receipt.v1", [
-      sourceRoot,
-      optionsRoot,
-      summaryRoot,
-      provider.receipt_root
-    ])
+    ...cached.value,
+    cache: {
+      scope: "process-local",
+      disposition: cached.disposition,
+      stored: cached.stored,
+      key: cacheKey
+    }
   };
 }

@@ -34,6 +34,7 @@ import {
 } from "./chromeSummarizerContract.js";
 import { summarizeWithChrome2Api } from "./chromeSummarizerOps.js";
 import { CHROME_DOCUMENT_LIMITS, summarizeDocumentWithChrome2Api } from "./chromeDocumentSummarizer.js";
+import { CHROME_CORPUS_LIMITS, summarizeCorpusWithChrome2Api } from "./chromeCorpusSummarizer.js";
 
 const STRUCTURED_STRING_MAX_CHARS = 30_000;
 
@@ -982,12 +983,14 @@ export function createCodexProServer(
       description:
         "Inspect recursive fleet invariants, execute a bounded Camel/KIE CPU plan, or use bounded loopback Chrome2api completion and Chrome Summarizer-compatible lanes.",
       inputSchema: {
-        action: z.enum(["invariants", "dag_contract", "dag_execute", "chrome_contract", "chrome_status", "chrome_complete", "chrome_summarizer_contract", "chrome_summarize", "chrome_summarize_document"])
+        action: z.enum(["invariants", "dag_contract", "dag_execute", "chrome_contract", "chrome_status", "chrome_complete", "chrome_summarizer_contract", "chrome_summarize", "chrome_summarize_document", "chrome_summarize_corpus"])
           .describe("Inspect a contract/status, execute one admitted CPU plan, or request one local ChromeML text completion."),
-        workspace_id: z.string().optional().describe("For chrome_summarize_document: workspace containing the source document."),
+        workspace_id: z.string().optional().describe("For chrome_summarize_document/corpus: workspace containing the source documents."),
         document_path: z.string().min(1).optional().describe("For chrome_summarize_document: text file path inside the selected workspace."),
+        document_glob: z.string().min(1).max(512).optional()
+          .describe("For chrome_summarize_corpus: case-sensitive top-level workspace glob. Default: *AI*.md."),
         chunk_bytes: z.number().int().min(CHROME_DOCUMENT_LIMITS.minChunkBytes).max(CHROME_DOCUMENT_LIMITS.maxChunkBytes).optional()
-          .describe("For chrome_summarize_document: deterministic maximum UTF-8 bytes per source chunk. Default: 48000."),
+          .describe("For chrome_summarize_document/corpus: deterministic maximum UTF-8 bytes per source chunk. Default: 48000."),
         dag_json: z.string().min(2).max(1_000_000).optional().describe("For dag_execute: JSON with planId and items [{id, capability, payload}]."),
         prompt: z.string().min(1).max(65_536).optional().describe("For chrome_complete: bounded text prompt. Media and local file paths are not accepted."),
         system: z.string().max(16_384).optional().describe("For chrome_complete: optional bounded system instruction."),
@@ -1087,6 +1090,56 @@ export function createCodexProServer(
         });
         return textResult(
           `# Chrome Document Summary\n\n${receipt.final.summary}\n\nChunks: ${receipt.source_chunks.length}\nReceipt: ${receipt.receipt_root}`,
+          receipt as unknown as Record<string, unknown>
+        );
+      }
+      if (args.action === "chrome_summarize_corpus") {
+        const pattern = String(args.document_glob ?? "*AI*.md");
+        if (pattern.includes("/") || pattern.includes("\\") || pattern.includes("**")) {
+          throw new CodexProError("fabric chrome_summarize_corpus accepts one top-level basename glob without path separators or **.");
+        }
+        const workspace = workspaces.getWorkspace(args.workspace_id);
+        const documentPaths = await listFiles(guard, workspace, {
+          root: ".",
+          glob: pattern,
+          includeHidden: false,
+          maxFiles: CHROME_CORPUS_LIMITS.maxDocuments + 1,
+          maxDepth: 0
+        });
+        if (!documentPaths.length) throw new CodexProError(`Chrome corpus glob matched no documents: ${pattern}`);
+        if (documentPaths.length > CHROME_CORPUS_LIMITS.maxDocuments) {
+          throw new CodexProError(`Chrome corpus glob matched more than ${CHROME_CORPUS_LIMITS.maxDocuments} documents.`);
+        }
+        const documents = [];
+        let totalBytes = 0;
+        for (const documentPath of documentPaths) {
+          const resolved = guard.resolve(workspace, documentPath);
+          await guard.assertTextFile(resolved.absPath, CHROME_DOCUMENT_LIMITS.maxDocumentBytes);
+          const bytes = await fsp.readFile(resolved.absPath);
+          totalBytes += bytes.byteLength;
+          if (totalBytes > CHROME_CORPUS_LIMITS.maxTotalBytes) {
+            throw new CodexProError(`Chrome corpus exceeds ${CHROME_CORPUS_LIMITS.maxTotalBytes} total UTF-8 bytes.`);
+          }
+          const source = bytes.toString("utf8");
+          if (!Buffer.from(source, "utf8").equals(bytes)) throw new CodexProError(`Chrome corpus document must be valid UTF-8 text: ${resolved.relPath}`);
+          documents.push({ documentId: resolved.relPath, text: source });
+        }
+        const receipt = await summarizeCorpusWithChrome2Api({
+          documents,
+          chunkBytes: args.chunk_bytes,
+          type: args.summary_type,
+          format: args.summary_format,
+          length: args.summary_length,
+          preference: args.summary_preference,
+          sharedContext: args.shared_context,
+          context: args.context,
+          expectedInputLanguages: args.expected_input_languages,
+          outputLanguage: args.output_language,
+          expectedContextLanguages: args.expected_context_languages,
+          timeoutMs: args.timeout_ms === undefined ? 120_000 : Number(args.timeout_ms)
+        });
+        return textResult(
+          `# Chrome Corpus Summary\n\nDocuments: ${receipt.document_count}\nUnique contents: ${receipt.unique_content_count}\nProvider calls: ${receipt.cache.provider_calls}\nReceipt: ${receipt.receipt_root}`,
           receipt as unknown as Record<string, unknown>
         );
       }

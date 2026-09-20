@@ -72,3 +72,15 @@ CodexPro adapts the documented map-then-reduce lifecycle for large documents.
 No donor source is copied. The project-owned gap preserves canonical UTF-8 byte
 ranges and source roots, caps recursion, and treats every generated summary as
 candidate-only output.
+
+## OpenClaw bounded workspace snapshot reference
+
+- Source: `openclaw/openclaw`, commit
+  `d9623bd46f3de8bfcc4045859dddf2bbc2865507`
+- Reference: `extensions/workspaces/src/manifest.ts`
+- License: MIT
+
+CodexPro adapts the donor's bounded 64-file / 8-MiB, content-hashed snapshot
+discipline to its document-corpus summarizer. No OpenClaw source is copied and
+the widget runtime is not imported. CodexPro reuses its existing workspace path
+guard, glob inventory, exact UTF-8 document summarizer, and receipt scheme.

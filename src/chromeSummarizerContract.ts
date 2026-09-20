@@ -32,6 +32,11 @@ export const CHROME_SUMMARY_LIMITS = Object.freeze({
   maxLanguagesPerField: 5
 });
 
+export const CHROME_SUMMARY_CACHE_LIMITS = Object.freeze({
+  maxEntries: 128,
+  maxBytes: 8_000_000
+});
+
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T, field: string): T {
   if (value === undefined) return fallback;
   if (typeof value !== "string" || !allowed.includes(value as T)) {
@@ -117,13 +122,22 @@ export function chromeSummarizerContract() {
     },
     large_documents: {
       action: "chrome_summarize_document",
+      corpus_action: "chrome_summarize_corpus",
       method: "deterministic UTF-8 chunks -> TLDR/long map -> bounded reduction -> requested final mode",
+      corpus_method: "bounded top-level glob -> exact byte hashes -> unique-content summaries -> per-path aliases",
       canonical_identity_uses_source_bytes_not_provider_quota: true,
       source_chunks_are_exactly_reconstructable: true,
       max_document_bytes: 2_000_000,
       max_chunk_bytes: 48_000,
       max_chunks: 64,
       max_reduction_depth: 6
+    },
+    cache: {
+      scope: "process-local",
+      identity: "endpoint + source root + normalized options root",
+      concurrent_identical_requests_joined: true,
+      failures_cached: false,
+      ...CHROME_SUMMARY_CACHE_LIMITS
     },
     limits: CHROME_SUMMARY_LIMITS
   } as const;

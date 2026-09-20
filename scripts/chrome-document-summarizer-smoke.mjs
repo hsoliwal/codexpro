@@ -69,6 +69,7 @@ try {
     timeoutMs: 5000
   };
   const first = await summarizeDocumentWithChrome2Api(input, env);
+  const callsBeforeReplay = calls;
   const replay = await summarizeDocumentWithChrome2Api(input, env);
   assert.equal(first.schema, 'codexpro.chrome-document-summary.receipt.v1');
   assert.equal(first.authority_ceiling, 'CANDIDATE_ONLY');
@@ -78,6 +79,8 @@ try {
   assert.ok(first.reduction_receipt_roots.length > 0, 'large intermediate candidates must exercise bounded reduction');
   assert.ok(first.reduction_depth > 0);
   assert.equal(first.receipt_root, replay.receipt_root, 'dynamic provider metadata must not alter semantic identity');
+  assert.equal(replay.cache.provider_calls, 0, 'unchanged document summaries must reuse cached provider outputs');
+  assert.equal(calls, callsBeforeReplay);
   assert.match(first.receipt_root, /^[a-f0-9]{64}$/);
   assert.equal(first.final.options.type, 'key-points');
   assert.equal(first.final.options.length, 'long');

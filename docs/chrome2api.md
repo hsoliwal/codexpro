@@ -51,6 +51,9 @@ The existing `fabric` tool provides:
 - `chrome_summarize_document` - reads a text file inside an admitted workspace
   and runs deterministic chunk/map/reduce summarization for documents up to
   2,000,000 UTF-8 bytes.
+- `chrome_summarize_corpus` - resolves a case-sensitive, top-level workspace
+  basename glob, hashes and deduplicates its sources, and summarizes each
+  unique content exactly once.
 
 Example arguments:
 
@@ -157,6 +160,34 @@ npm run chrome-ai:corpus -- E:\Downloads
 
 The checker selects case-sensitive `*AI*.md`, verifies UTF-8 and exact chunk
 reconstruction, and emits file/content/chunk roots without copying source text.
+
+To summarize that corpus through MCP in one bounded operation:
+
+```json
+{
+  "action": "chrome_summarize_corpus",
+  "workspace_id": "downloads",
+  "document_glob": "*AI*.md",
+  "summary_type": "key-points",
+  "summary_format": "markdown",
+  "summary_length": "long",
+  "expected_input_languages": ["en"],
+  "output_language": "en"
+}
+```
+
+The glob is a basename-only pattern: path separators and `**` are rejected, and
+only files directly under the admitted workspace are considered. The corpus is
+capped at 64 documents and 8,000,000 total UTF-8 bytes. Exact duplicate bytes
+share one content-summary receipt while each path retains a distinct alias
+receipt. Provider execution remains sequential so failure order is stable.
+
+Successful summary calls are reused inside the running CodexPro process by a
+key binding the loopback endpoint, exact source root, and normalized options
+root. The cache joins concurrent identical calls, stores no source text beyond
+the already bounded receipt, retains at most 128 entries / 8 MB, and never
+caches failures. Cache hit/miss state is diagnostic only and does not change the
+semantic receipt root.
 
 ## Enforced boundary
 

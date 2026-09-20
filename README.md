@@ -172,7 +172,7 @@ npm run release:check
 
 ### AI-planned, rules-admitted CPU DAGs
 
-The `fabric` MCP tool exposes nine bounded actions:
+The `fabric` MCP tool exposes ten bounded actions:
 
 - `invariants` returns the recursive fleet contract.
 - `dag_contract` returns registered capabilities, policy root, and hard limits.
@@ -190,6 +190,10 @@ The `fabric` MCP tool exposes nine bounded actions:
 - `chrome_summarize_document` reads one workspace-confined UTF-8 document,
   creates exact byte-range chunks, maps them locally, performs a bounded
   summary-of-summaries reduction, and returns a candidate-only receipt.
+- `chrome_summarize_corpus` resolves one safe top-level workspace glob,
+  content-deduplicates at most 64 documents / 8 MB, summarizes each unique
+  source once, and returns per-path alias receipts. Unchanged requests reuse a
+  bounded process-local summary cache.
 
 The planner is never the router. A model may propose only data; it cannot supply
 Camel endpoint URIs, shell commands, executables, or credentials. See the

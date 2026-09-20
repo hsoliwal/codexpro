@@ -49,6 +49,8 @@ try {
   assert.equal(contract.compatibility_notes.authority_ceiling, 'CANDIDATE_ONLY');
   assert.equal(contract.compatibility_notes.preference_is_advisory, true);
   assert.equal(contract.large_documents.action, 'chrome_summarize_document');
+  assert.equal(contract.large_documents.corpus_action, 'chrome_summarize_corpus');
+  assert.equal(contract.cache.concurrent_identical_requests_joined, true);
 
   const roots = new Set();
   for (const type of SUMMARY_TYPES) {
@@ -82,8 +84,12 @@ try {
     timeoutMs: 5000
   };
   const first = await summarizeWithChrome2Api(configured, env);
+  const callsBeforeReplay = requests.length;
   const replay = await summarizeWithChrome2Api(configured, env);
   assert.equal(first.receipt_root, replay.receipt_root);
+  assert.equal(first.cache.disposition, 'miss');
+  assert.equal(replay.cache.disposition, 'hit');
+  assert.equal(requests.length, callsBeforeReplay, 'unchanged summaries must not repeat provider work');
   assert.deepEqual(first.options.expected_input_languages, ['en', 'ja']);
   assert.equal(first.options.output_language, 'fr');
   const sent = requests.at(-1);

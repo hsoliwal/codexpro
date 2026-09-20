@@ -265,13 +265,18 @@ async function expectToolError(name, args, pattern, targetClient = client) {
   }
 }
 const fabricActions = toolsByName.get('fabric')?.inputSchema?.properties?.action?.enum ?? [];
-for (const action of ['invariants', 'dag_contract', 'dag_execute', 'chrome_contract', 'chrome_status', 'chrome_complete', 'chrome_summarizer_contract', 'chrome_summarize', 'chrome_summarize_document']) {
+for (const action of ['invariants', 'dag_contract', 'dag_execute', 'chrome_contract', 'chrome_status', 'chrome_complete', 'chrome_summarizer_contract', 'chrome_summarize', 'chrome_summarize_document', 'chrome_summarize_corpus']) {
   if (!fabricActions.includes(action)) throw new Error(`fabric schema missing action: ${action}`);
 }
 const chromeContractResult = await client.request('tools/call', { name: 'fabric', arguments: { action: 'chrome_contract' } });
 if (chromeContractResult.isError || chromeContractResult.structuredContent?.schema !== 'codexpro.chrome2api.contract.v1') {
   throw new Error(`fabric chrome_contract failed: ${JSON.stringify(chromeContractResult)}`);
 }
+await expectToolError(
+  'fabric',
+  { action: 'chrome_summarize_corpus', document_glob: 'does-not-exist-*.md' },
+  /matched no documents/i
+);
 for (const visualTool of toolNames) {
   if (hasWidgetMeta(visualTool) || hasToolCardStatusMeta(visualTool)) throw new Error(`${visualTool} exposed widget metadata while CODEXPRO_TOOL_CARDS is off`);
 }

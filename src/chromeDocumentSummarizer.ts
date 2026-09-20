@@ -182,6 +182,9 @@ export async function summarizeDocumentWithChrome2Api(input: ChromeDocumentSumma
     ...reductionReceipts.map((receipt) => receipt.receipt_root),
     finalReceipt.receipt_root
   ]);
+  const requestReceipts = [...mapReceipts, ...reductionReceipts, finalReceipt];
+  const providerCalls = requestReceipts.filter((receipt) => receipt.cache.disposition === "miss").length;
+  const joinedRequests = requestReceipts.filter((receipt) => receipt.cache.disposition === "joined").length;
   return {
     schema: "codexpro.chrome-document-summary.receipt.v1",
     backend: "chrome2api-summarizer-compat",
@@ -196,6 +199,14 @@ export async function summarizeDocumentWithChrome2Api(input: ChromeDocumentSumma
     reduction_receipt_roots: reductionReceipts.map((receipt) => receipt.receipt_root),
     reduction_depth: depth,
     final: finalReceipt,
+    cache: {
+      scope: "process-local",
+      requests: requestReceipts.length,
+      provider_calls: providerCalls,
+      reused_requests: requestReceipts.length - providerCalls,
+      joined_requests: joinedRequests,
+      all_stored: requestReceipts.every((receipt) => receipt.cache.stored)
+    },
     execution_root: executionRoot,
     receipt_root: canonicalRoot("codexpro.chrome-document-summary.receipt.v1", [
       sourceRoot,
