@@ -27,11 +27,22 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: camel-cpu-dag/pom.xml
+
       - name: Install
         run: npm ci
 
       - name: Build
         run: npm run build
+
+      - name: Build Camel/KIE CPU DAG
+        run: npm run build:camel
 
       - name: Smoke Test
         run: npm run smoke

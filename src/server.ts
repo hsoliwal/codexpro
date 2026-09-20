@@ -20,6 +20,10 @@ import { TOOL_CARD_LEGACY_URIS, TOOL_CARD_MIME_TYPE, TOOL_CARD_URI, toolCardWidg
 import { hasSecretValue, redactSensitiveText, redactStructured } from "./redact.js";
 import { inspectWorkspace, invalidateWorkspaceAnalysis, reviewWorkspaceChanges } from "./analysis/index.js";
 import { pathRedactions, redactPathsDeep, redactPathsInText } from "./pathLabels.js";
+import { fleetCapabilityContract } from "./fleetInvariants.js";
+import { camelDagContract, runCamelDag } from "./camelDagOps.js";
+import { chrome2ApiContract } from "./chrome2ApiContract.js";
+import { chrome2ApiStatus, completeWithChrome2Api } from "./chrome2ApiOps.js";
 
 const STRUCTURED_STRING_MAX_CHARS = 30_000;
 
@@ -349,6 +353,7 @@ const MINIMAL_TOOL_NAMES = [
 
 const STANDARD_TOOL_NAMES = [
   ...MINIMAL_TOOL_NAMES,
+  "fabric",
   "inspect_workspace",
   "tree",
   "search",
@@ -362,6 +367,7 @@ const STANDARD_TOOL_NAMES = [
 
 const FULL_TOOL_NAMES = [
   SUPERTOOL_NAME,
+  "fabric",
   "server_config",
   "codexpro_self_test",
   "codexpro_inventory",
@@ -393,6 +399,7 @@ const FULL_TOOL_NAMES = [
 
 const CONNECTION_TEST_HIDDEN_TOOLS = new Set<string>([
   SUPERTOOL_NAME,
+  "fabric",
   "codexpro_self_test",
   "write",
   "edit",
@@ -955,6 +962,77 @@ export function createCodexProServer(
   const server = new McpServer({ name: "CodexPro", version: "0.30.0" }, { instructions: serverInstructions(config) });
   registeredToolNamesByServer.set(server as object, []);
   registerToolCardResource(server, config);
+
+  registerCodexTool(
+    config,
+    server,
+    "fabric",
+    {
+      title: "Bounded CPU Fabric",
+      description:
+        "Inspect recursive fleet invariants, execute a bounded Camel/KIE CPU plan, or use the bounded loopback Chrome2api text-inference lane.",
+      inputSchema: {
+        action: z.enum(["invariants", "dag_contract", "dag_execute", "chrome_contract", "chrome_status", "chrome_complete"])
+          .describe("Inspect a contract/status, execute one admitted CPU plan, or request one local ChromeML text completion."),
+        dag_json: z.string().min(2).max(1_000_000).optional().describe("For dag_execute: JSON with planId and items [{id, capability, payload}]."),
+        prompt: z.string().min(1).max(65_536).optional().describe("For chrome_complete: bounded text prompt. Media and local file paths are not accepted."),
+        system: z.string().max(16_384).optional().describe("For chrome_complete: optional bounded system instruction."),
+        max_tokens: z.number().int().min(1).max(2_048).optional().describe("For chrome_complete: maximum output tokens. Default: 256."),
+        temperature: z.number().min(0).max(2).optional().describe("For chrome_complete: sampling temperature. Default: 0.2."),
+        timeout_ms: z.number().int().min(2_000).max(120_000).optional().describe("Execution deadline. Default: 120000 ms.")
+      },
+      annotations: READ_ONLY_ANNOTATIONS
+    },
+    async (args) => {
+      if (args.action === "invariants") {
+        const contract = fleetCapabilityContract();
+        const statements = contract.invariants.map((item) => `- ${item.id}: ${item.statement}`).join("\n");
+        return textResult(`# Fleet Capability Invariants\n\n${statements}`, contract as unknown as Record<string, unknown>);
+      }
+      if (args.action === "dag_contract") {
+        const contract = camelDagContract();
+        const ready = contract.runtime.jar_present && contract.runtime.java_present;
+        return textResult(
+          `# Camel/KIE CPU DAG\n\nRuntime: ${contract.engine}\nReady: ${ready}\nCapabilities: ${contract.compiler.capabilities.join(", ")}`,
+          contract as unknown as Record<string, unknown>
+        );
+      }
+      if (args.action === "chrome_contract") {
+        const contract = chrome2ApiContract();
+        return textResult(
+          `# Chrome2api Contract\n\nEndpoint valid: ${contract.endpoint.configuration_valid}\nModel: ${contract.model}\nLocal text only: ${contract.boundaries.local_file_or_media_inputs === false}`,
+          contract as unknown as Record<string, unknown>
+        );
+      }
+      if (args.action === "chrome_status") {
+        const status = await chrome2ApiStatus(args.timeout_ms === undefined ? 5_000 : Number(args.timeout_ms));
+        return textResult(
+          `# Chrome2api Status\n\nReady: ${status.ready}\nModel: ${status.required_model}\nLatency: ${status.latency_ms} ms`,
+          status as unknown as Record<string, unknown>
+        );
+      }
+      if (args.action === "chrome_complete") {
+        if (!args.prompt) throw new CodexProError("fabric chrome_complete requires prompt.");
+        const receipt = await completeWithChrome2Api({
+          prompt: String(args.prompt),
+          system: args.system === undefined ? undefined : String(args.system),
+          maxTokens: args.max_tokens === undefined ? undefined : Number(args.max_tokens),
+          temperature: args.temperature === undefined ? undefined : Number(args.temperature),
+          timeoutMs: args.timeout_ms === undefined ? 120_000 : Number(args.timeout_ms)
+        });
+        return textResult(
+          `# Chrome2api Completion\n\n${receipt.content}\n\nReceipt: ${receipt.receipt_root}`,
+          receipt as unknown as Record<string, unknown>
+        );
+      }
+      if (!args.dag_json) throw new CodexProError("fabric dag_execute requires dag_json.");
+      const receipt = await runCamelDag(String(args.dag_json), args.timeout_ms === undefined ? 120_000 : Number(args.timeout_ms));
+      return textResult(
+        `# Camel/KIE CPU DAG Receipt\n\nPlan: ${String(receipt.planId ?? "unknown")}\nReceipt: ${String(receipt.receiptRoot ?? "unknown")}\nOutputs: ${Array.isArray(receipt.outputs) ? receipt.outputs.length : 0}`,
+        receipt
+      );
+    }
+  );
 
   registerCodexTool(
     config,
