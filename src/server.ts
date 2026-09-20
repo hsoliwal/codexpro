@@ -35,6 +35,7 @@ import {
 import { summarizeWithChrome2Api } from "./chromeSummarizerOps.js";
 import { CHROME_DOCUMENT_LIMITS, summarizeDocumentWithChrome2Api } from "./chromeDocumentSummarizer.js";
 import { CHROME_CORPUS_LIMITS, summarizeCorpusWithChrome2Api } from "./chromeCorpusSummarizer.js";
+import { CODEXPRO_VERSION } from "./version.js";
 
 const STRUCTURED_STRING_MAX_CHARS = 30_000;
 
@@ -970,7 +971,7 @@ export function createCodexProServer(
   const workspaces = new WorkspaceManager(config, options.workspaceRegistry);
   const reviewCheckpoints = new Map<string, string>();
   const guard = new PathGuard(config);
-  const server = new McpServer({ name: "CodexPro", version: "0.30.0" }, { instructions: serverInstructions(config) });
+  const server = new McpServer({ name: "CodexPro", version: CODEXPRO_VERSION }, { instructions: serverInstructions(config) });
   registeredToolNamesByServer.set(server as object, []);
   registerToolCardResource(server, config);
 
