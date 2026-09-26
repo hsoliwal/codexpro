@@ -63,13 +63,35 @@ If plugin creation fails, run `codexpro connection-test` and check whether ChatG
 
 With workspace write mode (the normal agent setup):
 
-- read, search, and inspect the repo
+- read, search, and inspect the repo with bounded code intelligence
 - edit with `write`, `edit`, or guarded `apply_patch`
 - import ChatGPT attachments with `import_file`
 - run allowlisted checks with `bash`
-- review diffs with `show_changes`
+- review diffs and likely impact with `show_changes`
 - write plans under `.ai-bridge`
 - export a context bundle for chats that cannot call tools
+
+### Built-in repository intelligence
+
+CodexPro does more than raw file search:
+
+- `inspect_workspace` maps languages, project types, entrypoints, areas, symbols, and internal relationships.
+- `search` supports targeted `symbol`, `references`, and `impact` intents as well as ordinary text and regex search.
+- `show_changes` identifies affected areas, likely dependents, related tests, risk signals, and relevant verification commands.
+- TypeScript/JavaScript, Python, Go, Rust, Swift, Java, C#, C, and C++ declarations are recognized. Other languages retain safe inventory and lexical search.
+
+Analysis is local, bounded, and cached by a workspace fingerprint. It needs no model API key, language-server daemon, embedding service, or vector database. Coverage and inference strength are reported instead of presented as certainty.
+
+### Product focus
+
+CodexPro is optimized for a narrow loop: connect ChatGPT to explicitly allowed local repositories, make a reviewable change, verify it, and preserve a handoff record. The project prioritizes:
+
+- explicit workspace boundaries and separate controls for reads, writes, commands, sessions, and handoffs
+- useful code navigation without sending a repository to a separate indexing service
+- cross-platform installation and release checks on supported Node.js versions
+- compact, bounded tool results that remain usable in long ChatGPT sessions
+
+See the [roadmap](ROADMAP.md) for the next reliability, code-navigation, and workflow improvements.
 
 ## Multiple projects
 
@@ -158,13 +180,50 @@ Restart `codexpro start` after updating. Saved profiles under `~/.codexpro` stay
 
 ## Development
 
+CodexPro's TypeScript runtime requires Node.js 20 or newer. Building the optional
+Camel/KIE CPU-DAG sidecar also requires Java 17 and Maven.
+
 ```bash
 npm install
 npm run build
+npm run build:camel
 npm run smoke
 npm run stress
+npm run package:smoke
 npm run release:check
 ```
+
+### AI-planned, rules-admitted CPU DAGs
+
+The `fabric` MCP tool exposes ten bounded actions:
+
+- `invariants` returns the recursive fleet contract.
+- `dag_contract` returns registered capabilities, policy root, and hard limits.
+- `dag_execute` admits a JSON plan through Drools, executes its fixed capability
+  with a bounded Camel SEDA route, performs stable fan-in, and returns a
+  SHA-256-bound receipt.
+- `chrome_contract` returns the fixed local-inference trust boundary.
+- `chrome_status` verifies the loopback Chrome2api service and required model.
+- `chrome_complete` executes one bounded text-only request through ChromeML and
+  returns request, response, and terminal receipt roots.
+- `chrome_summarizer_contract` returns the Chrome Summarizer-compatible option
+  and lifecycle contract.
+- `chrome_summarize` executes a bounded local summary across every documented
+  type, format, length, and preference mode.
+- `chrome_summarize_document` reads one workspace-confined UTF-8 document,
+  creates exact byte-range chunks, maps them locally, performs a bounded
+  summary-of-summaries reduction, and returns a candidate-only receipt.
+- `chrome_summarize_corpus` resolves one safe top-level workspace glob,
+  content-deduplicates at most 64 documents / 8 MB, summarizes each unique
+  source once, and returns per-path alias receipts. Unchanged requests reuse a
+  bounded process-local summary cache.
+
+The planner is never the router. A model may propose only data; it cannot supply
+Camel endpoint URIs, shell commands, executables, or credentials. See the
+[CPU-DAG contract](docs/camel-kie-cpu-dag.md) and
+[fleet invariants](docs/fleet-capability-invariants.md). The optional
+[Chrome2api provider](docs/chrome2api.md) is loopback-only and never forwards
+authorization, cookies, browser state, local file paths, or media.
 
 Publish only from the CodexPro root:
 
@@ -178,6 +237,7 @@ npm run release:publish
 - [Website](https://rebel0789.github.io/codexpro/)
 - [FAQ](FAQ.md)
 - [Security](SECURITY.md)
+- [Roadmap](ROADMAP.md)
 - [Stable URL guide](DOMAIN_SETUP.md)
 - [Changelog](CHANGELOG.md)
 - [Contributors](CONTRIBUTORS.md)

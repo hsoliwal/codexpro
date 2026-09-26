@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Added bounded Chrome Summarizer-compatible corpus execution: safe top-level
+  workspace globs, 64-document / 8-MB caps, exact-content deduplication,
+  per-path alias receipts, and deterministic unique-content execution order.
+- Added bounded process-local summary reuse with concurrent request joining;
+  cache diagnostics never affect semantic receipt identity and failures are not
+  cached.
+
+## 0.30.2 (2026-09-20)
+
+- Read the runtime and MCP server version from package metadata so release entrypoints cannot drift from `package.json`.
+- Added a clean consumer-install smoke test for the packed npm tarball and all three public command entrypoints.
+- Expanded CI to Node.js 20 and 24 on Linux and Windows, including package-install and high-severity dependency-audit gates.
+- Documented built-in repository intelligence, product focus, and a prioritized public roadmap.
+
+## 0.30.1 (2026-09-20)
+
 - Hardened local handoff receipts: interruptions are recorded as non-terminal `interrupting` and terminal `interrupted` states only after child exit; stale in-flight receipts become `orphaned` only when recorded processes are gone and require reconciliation.
 - Blocked standard Git/GitHub remote mutation paths inside local handoff executors by default; `--allow-remote-mutations` is an explicit opt-in for authorized workflows.
 - Added explicit Windows Bash runtime selection: `auto` prefers Git for Windows and never silently falls back to WSL; WSL requires `CODEXPRO_BASH_RUNTIME=wsl`.
