@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+name: M3 Public Control Plane Self-Test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/m3-reusable-control-plane-v1.yml'
+      - '.github/workflows/m3-reusable-control-plane-selftest.yml'
+      - 'docs/m3-reusable-control-plane.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m3:
+    uses: ./.github/workflows/m3-reusable-control-plane-v1.yml
+    with:
+      profile: inventory
+      target_root: '.'
+      build_system: none
+      lint_profile: none
+      run_tests: false
+      run_runtime: false
+      tool_discovery: true
+      artifact_retention_days: 7
