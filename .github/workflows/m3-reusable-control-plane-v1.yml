@@ -1,0 +1,311 @@
+# SPDX-License-Identifier: MIT
+name: M3 Public Reusable Control Plane V1
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        description: inventory, fast, or full
+        required: false
+        type: string
+        default: inventory
+      java_version:
+        required: false
+        type: string
+        default: '21'
+      module:
+        required: false
+        type: string
+        default: ''
+      target_root:
+        required: false
+        type: string
+        default: '.'
+      build_system:
+        description: auto, maven, gradle, or none
+        required: false
+        type: string
+        default: auto
+      lint_profile:
+        description: auto, spotless-checkstyle, checkstyle, or none
+        required: false
+        type: string
+        default: auto
+      run_tests:
+        required: false
+        type: boolean
+        default: true
+      run_runtime:
+        required: false
+        type: boolean
+        default: false
+      tool_discovery:
+        required: false
+        type: boolean
+        default: true
+      artifact_retention_days:
+        required: false
+        type: number
+        default: 14
+
+permissions:
+  contents: read
+
+jobs:
+  m3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      M3_PROFILE: ${{ inputs.profile }}
+      M3_JAVA_VERSION: ${{ inputs.java_version }}
+      M3_MODULE: ${{ inputs.module }}
+      M3_TARGET_ROOT: ${{ inputs.target_root }}
+      M3_BUILD_REQUESTED: ${{ inputs.build_system }}
+      M3_LINT_REQUESTED: ${{ inputs.lint_profile }}
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+      TZ: UTC
+
+    steps:
+      - name: Checkout caller
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve bounded task packet
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          case "$M3_PROFILE" in
+            inventory|fast|full) ;;
+            *) echo "invalid profile: $M3_PROFILE" >&2; exit 2 ;;
+          esac
+          case "$M3_BUILD_REQUESTED" in
+            auto|maven|gradle|none) ;;
+            *) echo "invalid build_system: $M3_BUILD_REQUESTED" >&2; exit 2 ;;
+          esac
+          case "$M3_LINT_REQUESTED" in
+            auto|spotless-checkstyle|checkstyle|none) ;;
+            *) echo "invalid lint_profile: $M3_LINT_REQUESTED" >&2; exit 2 ;;
+          esac
+          if [[ "$M3_TARGET_ROOT" = /* || "$M3_TARGET_ROOT" == *".."* ]]; then
+            echo "target_root must remain inside the repository" >&2
+            exit 2
+          fi
+          if [[ -n "$M3_MODULE" && ! "$M3_MODULE" =~ ^[A-Za-z0-9._,/:+@-]+$ ]]; then
+            echo "module contains unsupported characters" >&2
+            exit 2
+          fi
+
+          out="$RUNNER_TEMP/m3-control-plane"
+          rm -rf "$out"
+          mkdir -p "$out/logs"
+          echo "M3_OUT=$out" >> "$GITHUB_ENV"
+
+          base=''
+          if [[ -n "${PR_BASE_SHA:-}" ]] && git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+            base="$PR_BASE_SHA"
+          elif [[ -n "${PUSH_BEFORE_SHA:-}" ]] &&
+               [[ "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]] &&
+               git cat-file -e "${PUSH_BEFORE_SHA}^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE_SHA"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            base="$(git rev-parse HEAD^)"
+          else
+            base="$(git rev-parse HEAD)"
+          fi
+          echo "M3_BASE=$base" >> "$GITHUB_ENV"
+
+          build="$M3_BUILD_REQUESTED"
+          if [[ "$build" == auto ]]; then
+            if [[ -x ./mvnw || -f pom.xml ]]; then
+              build=maven
+            elif [[ -x ./gradlew || -f build.gradle || -f build.gradle.kts ]]; then
+              build=gradle
+            else
+              build=none
+            fi
+          fi
+          echo "M3_BUILD_SYSTEM=$build" >> "$GITHUB_ENV"
+
+          {
+            printf 'key\tvalue\n'
+            printf 'schema\tM3-PUBLIC-CONTROL-PLANE-V1\n'
+            printf 'repository\t%s\n' "$GITHUB_REPOSITORY"
+            printf 'sha\t%s\n' "$GITHUB_SHA"
+            printf 'profile\t%s\n' "$M3_PROFILE"
+            printf 'target_root\t%s\n' "$M3_TARGET_ROOT"
+            printf 'module\t%s\n' "$M3_MODULE"
+            printf 'build_system\t%s\n' "$build"
+            printf 'promotion_authorized\tfalse\n'
+          } > "$out/TASK_PACKET.tsv"
+
+      - name: Set up Java
+        if: ${{ inputs.profile != 'inventory' && inputs.build_system != 'none' }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+          cache: maven
+
+      - name: Inventory tracked files
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$M3_OUT"
+          printf 'path\tmodule\tgit_blob\tsha256\n' > "$out/INVENTORY.tsv"
+          count=0
+          while IFS= read -r -d '' path; do
+            [[ -e "$path" || -L "$path" ]] || continue
+            module="${path%%/*}"
+            [[ "$module" == "$path" ]] && module='.'
+            git_blob="$(git hash-object -- "$path")"
+            strong="$(sha256sum -- "$path" | awk '{print $1}')"
+            printf '%s\t%s\t%s\t%s\n' "$path" "$module" "$git_blob" "$strong" >> "$out/INVENTORY.tsv"
+            count=$((count + 1))
+          done < <(git ls-files -z -- "$M3_TARGET_ROOT" | LC_ALL=C sort -z)
+          printf '%s\n' "$count" > "$out/inventory-count.txt"
+
+      - name: Discover deterministic tool candidates
+        if: ${{ inputs.tool_discovery }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$M3_OUT"
+          printf 'tool\tsource_path\tline\tsignal\tdisposition\n' > "$out/TOOL_CANDIDATES.tsv"
+          pattern='(^|[^[:alnum:]_])(ripgrep|rg|grep|sed|awk|flex|bison|sqlite|lucene|mmap|RandomAccessFile|OpenRewrite|JGit|cmake|ninja|clang|gcc)([^[:alnum:]_]|$)'
+          git grep -nI -E "$pattern" -- "$M3_TARGET_ROOT" 2>/dev/null || true |
+            LC_ALL=C sort -u |
+            while IFS=: read -r path line signal; do
+              [[ -n "$path" ]] || continue
+              cleaned="$(printf '%s' "$signal" | tr '\t\r\n' '   ' | cut -c1-240)"
+              printf 'candidate\t%s\t%s\t%s\tCANDIDATE_ONLY\n' "$path" "$line" "$cleaned"
+            done >> "$out/TOOL_CANDIDATES.tsv"
+
+      - name: Diff gate
+        if: ${{ inputs.profile != 'inventory' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$M3_BASE"...HEAD 2>&1 | tee "$M3_OUT/logs/01-diff.log"
+          git diff --name-status "$M3_BASE"...HEAD | LC_ALL=C sort > "$M3_OUT/logs/01-files.tsv"
+
+      - name: Lint
+        if: ${{ inputs.profile != 'inventory' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          lint="$M3_LINT_REQUESTED"
+          if [[ "$M3_BUILD_SYSTEM" == maven ]]; then
+            if [[ -x ./mvnw ]]; then cmd=(./mvnw -B -ntp); else cmd=(mvn -B -ntp); fi
+            scope=()
+            [[ -n "$M3_MODULE" ]] && scope=(-pl "$M3_MODULE")
+            if [[ "$lint" == auto ]]; then
+              text="$(cat pom.xml "${M3_MODULE:+$M3_MODULE/pom.xml}" 2>/dev/null || true)"
+              if grep -q 'spotless-maven-plugin' <<<"$text" && grep -q 'maven-checkstyle-plugin' <<<"$text"; then
+                lint=spotless-checkstyle
+              elif grep -q 'maven-checkstyle-plugin' <<<"$text"; then
+                lint=checkstyle
+              else
+                echo 'no configured Maven linter detected' >&2
+                exit 3
+              fi
+            fi
+            case "$lint" in
+              spotless-checkstyle) "${cmd[@]}" "${scope[@]}" -DskipTests -Dspotbugs.skip=true -Dpmd.skip=true spotless:check checkstyle:check ;;
+              checkstyle) "${cmd[@]}" "${scope[@]}" -DskipTests checkstyle:check ;;
+              *) echo "unsupported Maven lint profile: $lint" >&2; exit 3 ;;
+            esac
+          elif [[ "$M3_BUILD_SYSTEM" == gradle ]]; then
+            if [[ -x ./gradlew ]]; then cmd=(./gradlew --no-daemon); else cmd=(gradle --no-daemon); fi
+            case "$lint" in
+              auto|checkstyle) "${cmd[@]}" check ;;
+              spotless-checkstyle) "${cmd[@]}" spotlessCheck check ;;
+              *) echo "unsupported Gradle lint profile: $lint" >&2; exit 3 ;;
+            esac
+          else
+            echo "fast/full requires Maven or Gradle build adapter" >&2
+            exit 3
+          fi 2>&1 | tee "$M3_OUT/logs/02-lint.log"
+
+      - name: Compile
+        if: ${{ inputs.profile != 'inventory' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$M3_BUILD_SYSTEM" == maven ]]; then
+            if [[ -x ./mvnw ]]; then cmd=(./mvnw -B -ntp); else cmd=(mvn -B -ntp); fi
+            scope=()
+            [[ -n "$M3_MODULE" ]] && scope=(-pl "$M3_MODULE" -am)
+            "${cmd[@]}" "${scope[@]}" -DskipTests compile
+          elif [[ "$M3_BUILD_SYSTEM" == gradle ]]; then
+            if [[ -x ./gradlew ]]; then cmd=(./gradlew --no-daemon); else cmd=(gradle --no-daemon); fi
+            "${cmd[@]}" classes
+          else
+            echo "fast/full requires Maven or Gradle build adapter" >&2
+            exit 4
+          fi 2>&1 | tee "$M3_OUT/logs/03-compile.log"
+
+      - name: Tests
+        if: ${{ inputs.profile == 'full' || (inputs.profile == 'fast' && inputs.run_tests) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$M3_BUILD_SYSTEM" == maven ]]; then
+            if [[ -x ./mvnw ]]; then cmd=(./mvnw -B -ntp); else cmd=(mvn -B -ntp); fi
+            scope=()
+            [[ -n "$M3_MODULE" ]] && scope=(-pl "$M3_MODULE" -am)
+            "${cmd[@]}" "${scope[@]}" test
+          elif [[ "$M3_BUILD_SYSTEM" == gradle ]]; then
+            if [[ -x ./gradlew ]]; then cmd=(./gradlew --no-daemon); else cmd=(gradle --no-daemon); fi
+            "${cmd[@]}" test
+          else
+            echo "tests require Maven or Gradle build adapter" >&2
+            exit 5
+          fi 2>&1 | tee "$M3_OUT/logs/04-tests.log"
+
+      - name: Runtime
+        if: ${{ inputs.profile != 'inventory' && inputs.run_runtime }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime='.m3/ci/runtime'
+          [[ -x "$runtime" ]] || { echo "missing executable $runtime" >&2; exit 6; }
+          "$runtime" 2>&1 | tee "$M3_OUT/logs/05-runtime.log"
+
+      - name: Finalize evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${M3_OUT:-$RUNNER_TEMP/m3-control-plane}"
+          mkdir -p "$out/logs"
+          count=0
+          [[ -f "$out/inventory-count.txt" ]] && count="$(cat "$out/inventory-count.txt")"
+          {
+            printf 'metric\tvalue\n'
+            printf 'repository\t%s\n' "$GITHUB_REPOSITORY"
+            printf 'sha\t%s\n' "$GITHUB_SHA"
+            printf 'profile\t%s\n' "$M3_PROFILE"
+            printf 'inventory_files\t%s\n' "$count"
+            printf 'promotion_authorized\tfalse\n'
+          } > "$out/SUMMARY.tsv"
+          {
+            printf '# M3 Public Reusable Control Plane\n\n'
+            printf 'Repository: %s@%s\n\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf 'Profile: %s\n\n' "$M3_PROFILE"
+            printf 'This workflow produces evidence only. It never merges, rebases, force-pushes, or promotes code.\n'
+          } > "$out/FINAL_REPORT.md"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-control-plane-${{ github.run_id }}
+          path: ${{ runner.temp }}/m3-control-plane/
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact_retention_days }}
