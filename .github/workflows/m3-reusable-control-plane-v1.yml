@@ -178,8 +178,9 @@ jobs:
           out="$M3_OUT"
           printf 'tool\tsource_path\tline\tsignal\tdisposition\n' > "$out/TOOL_CANDIDATES.tsv"
           pattern='(^|[^[:alnum:]_])(ripgrep|rg|grep|sed|awk|flex|bison|sqlite|lucene|mmap|RandomAccessFile|OpenRewrite|JGit|cmake|ninja|clang|gcc)([^[:alnum:]_]|$)'
-          git grep -nI -E "$pattern" -- "$M3_TARGET_ROOT" 2>/dev/null || true |
-            LC_ALL=C sort -u |
+          {
+            git grep -nI -E "$pattern" -- "$M3_TARGET_ROOT" 2>/dev/null || true
+          } | LC_ALL=C sort -u |
             while IFS=: read -r path line signal; do
               [[ -n "$path" ]] || continue
               cleaned="$(printf '%s' "$signal" | tr '\t\r\n' '   ' | cut -c1-240)"
