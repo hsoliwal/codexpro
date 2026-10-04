@@ -41,7 +41,9 @@ final class DagPolicy {
   private static String readRules() {
     ClassLoader loader = DagPolicy.class.getClassLoader();
     try (InputStream input = loader.getResourceAsStream(POLICY_RESOURCE)) {
-      if (input == null) throw new IllegalStateException("Missing DAG admission rules: " + POLICY_RESOURCE);
+      if (input == null) {
+        throw new IllegalStateException("Missing DAG admission rules: " + POLICY_RESOURCE);
+      }
       return new String(input.readAllBytes(), StandardCharsets.UTF_8);
     } catch (IOException error) {
       throw new IllegalStateException("Unable to read DAG admission rules", error);
