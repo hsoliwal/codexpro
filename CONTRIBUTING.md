@@ -125,3 +125,20 @@ Retain the [MIT license](LICENSE), contributor credit, and
 [third-party notices](THIRD_PARTY_NOTICES.md). Dependencies and referenced
 projects retain their own licenses. Do not include repository contents, logs,
 screenshots, or connection details that expose private data.
+
+## Source-backed architecture and contracts
+
+For the pinned fork source inventory and deeper implementation guidance, start
+with [architecture and project/package boundaries](docs/architecture-and-projects.md).
+The companion guides cover:
+
+- [runtime, transports, configuration, and local execution](docs/runtime-contracts.md)
+- [all 33 MCP operation registration sites](docs/mcp-api-reference.md)
+- [workspace operations, analysis, and data boundaries](docs/workspace-and-analysis-contracts.md)
+- [Java CPU and local-model contracts](docs/compute-contracts.md)
+- [every source module and its review status](docs/module-inventory.md)
+- [coverage, verification limits, and remaining work](docs/documentation-coverage.md)
+
+These documents distinguish observed implementation from intended contracts,
+record unexecuted checks, and do not claim complete inline/API documentation or
+complete semantic coverage. Consult current PR checks for exact-head CI status.
