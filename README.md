@@ -37,7 +37,7 @@ follows below; upstream authorship, licenses, and project identity remain intact
 
 This is [hsoliwal/codexpro](https://github.com/hsoliwal/codexpro), forked from
 [rebel0789/codexpro](https://github.com/rebel0789/codexpro). The npm install,
-website, and status badges below identify upstream; they do not establish which
+website, and status badges in this README identify upstream; they do not establish which
 fork additions are in a published package.
 
 - [Contributor guide](CONTRIBUTING.md): source map, checkout setup, and test boundaries
