@@ -128,3 +128,49 @@ The optional Chrome2api and CPU-DAG features have their own contracts and test
 boundaries. Read those linked specifications rather than inferring permission to
 execute arbitrary endpoints, commands, or model-proposed plans from the existence
 of a `fabric` tool. Keep [upstream notices](../THIRD_PARTY_NOTICES.md) intact.
+
+## Analysis result contract: missing, truncated, and cached are different
+
+The result assembled by `inspectWorkspace()` includes:
+
+| Field | Use it to answer | Do not infer |
+| --- | --- | --- |
+| `files`, `symbols`, `relationships` | What was actually inventoried/extracted? | Every file or runtime relationship was covered |
+| `coverage.inventoryFiles` / `analyzedFiles` | How much inventory and extraction occurred? | The two counts must be equal |
+| `coverage.truncated` and `warnings` | Which reported budgets or conditions limited the result? | False means inaccessible files do not exist |
+| `fingerprint` | Which inventory metadata snapshot keyed this analysis? | A cryptographic digest of every file's contents |
+| `cache.hit` / `cache.key` | Was a cached result used for this key? | Persistent cache state shared across server restarts |
+
+[inventory.ts](../src/analysis/inventory.ts) sorts files and hashes the joined
+`path:bytes:modifiedMs` strings. It does **not** hash file contents. Edits that
+preserve both size and modification time can therefore escape this metadata-based
+fingerprint. The inventory also deliberately omits blocked, escaping, unreadable,
+binary, and oversized candidates in its catch path; those omissions do not each
+produce a warning. Treat completeness separately from `truncated: false`.
+
+### End-to-end investigation: a source file seems absent
+
+1. Confirm the intended workspace/root in the tool result and active settings.
+   `loadConfig()` canonicalizes existing root directories; a stale profile can
+   point to another valid checkout without producing a missing-directory error.
+2. Check [config.ts](../src/config.ts)'s blocked globs and `guard.ts` resolution.
+   Build directories, dependencies, credentials, and paths escaping through a
+   symlink are deliberately excluded. Do not weaken those controls just to make
+   a search result larger.
+3. Check whether the file is binary or exceeds the text-scan budget used by
+   inventory. Hidden-file inclusion does not override path/security exclusions.
+4. Inspect inventory/extraction counts and warnings. Inventory, analyzed-file,
+   byte, symbol, and relationship caps are distinct settings; increasing one
+   does not establish exhaustive coverage of all others.
+5. For structured search, check `includeTests`, `root`, and `regex`. Tests are
+   skipped unless included; generated files are skipped; regex uses a separate
+   lexical path rather than the grouped result engine.
+6. Compare fingerprint and cache state. If a stale-result concern remains,
+   inspect invalidation callers and reproduce it in a disposable fixture with
+   the analysis smoke scripts. Do not describe a cache hit alone as proof of
+   correctness or a performance improvement.
+
+For a bug report, preserve the command/tool parameters, sanitized coverage and
+warning fields, expected file role, and installed version. Exclude source secrets,
+absolute private paths, connector URLs, and tokens. A compact reproduction with
+ordinary fixture names is more actionable than an unbounded workspace dump.
