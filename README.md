@@ -33,6 +33,19 @@ follows below; upstream authorship, licenses, and project identity remain intact
   <a href="https://rebel0789.github.io/codexpro/"><img alt="Website" src="https://img.shields.io/badge/site-GitHub%20Pages-67e8f9?style=flat-square"></a>
 </p>
 
+## Working with this fork
+
+This is [hsoliwal/codexpro](https://github.com/hsoliwal/codexpro), forked from
+[rebel0789/codexpro](https://github.com/rebel0789/codexpro). The npm install,
+website, and status badges below identify upstream; they do not establish which
+fork additions are in a published package.
+
+- [Contributor guide](CONTRIBUTING.md): source map, checkout setup, and test boundaries
+- [Security policy](SECURITY.md): workspace, command, authentication, and tunnel controls
+- [CPU-DAG contract](docs/camel-kie-cpu-dag.md) and
+  [Chrome2api integration](docs/chrome2api.md): fork-specific optional components
+- [License](LICENSE) and [third-party provenance](THIRD_PARTY_NOTICES.md)
+
 ## What it is
 
 CodexPro is a local MCP server. It connects **your ChatGPT session** to **your machine** and **repos you allow**.
