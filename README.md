@@ -1,3 +1,7 @@
+## Explore this fork
+
+Start with the [developer field guide and command cheat sheet](docs/DEVELOPER_GUIDE.md) for workspace-analysis concepts, a worked source walkthrough, build checks, and security boundaries.
+
 ## M3 direction in this fork
 
 M3 is based on the idea that shared immutable structure and indexed metadata can
