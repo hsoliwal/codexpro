@@ -1,3 +1,102 @@
+<!-- fork-homepage-guide:start -->
+# Understand a repository, make a bounded change, verify the result
+
+This [hsoliwal CodexPro fork](https://github.com/hsoliwal/codexpro) builds on
+[rebel0789/codexpro](https://github.com/rebel0789/codexpro): a local Model Context
+Protocol (MCP) server for repositories you explicitly allow. Its core loop is
+**select a workspace → inspect/search → propose or make a permitted change →
+review the diff → run relevant checks**. The existing end-user installation and
+connection guide remains below.
+
+## What exists in this fork?
+
+The source includes filesystem/search/Git tools, path guards, bounded repository
+analysis, and optional Camel/KIE CPU-DAG and loopback Chrome2api integrations.
+Those integrations have distinct dependencies and contracts; they are not required
+to understand the TypeScript analysis code. The M3 programme links describe a
+supporting-tooling direction, not M3JDK21 runtime ownership or measured speedups.
+This documentation update did not execute the server, tests, sidecar, or inference.
+
+The upstream npm package, website and badges below retain their upstream meaning.
+Installing the public package does not prove that this fork's source additions
+are in that release. Build this checkout when investigating fork-specific code.
+
+## Concepts and trust boundaries
+
+| Concept | Practical meaning |
+| --- | --- |
+| MCP tool | A named operation exposed to a client through the shared server |
+| Allowed workspace | A configured repository root, checked by path/operation guards |
+| Inventory | The bounded file set used for analysis and its fingerprint |
+| Symbol / relationship | Extracted declaration / import-derived edge, not a complete runtime call graph |
+| Coverage and warnings | Limits and omissions to read before treating analysis as exhaustive |
+| Fingerprint cache | Process-local reuse keyed by workspace inventory and analysis limits |
+| CPU-DAG | A bounded plan admitted by fixed capabilities/policy; model-proposed data is not arbitrary executable routing |
+
+Start in [`src/server.ts`](src/server.ts) for tool dispatch,
+[`src/guard.ts`](src/guard.ts) for path policy, and
+[`src/analysis/index.ts`](src/analysis/index.ts) for analysis. Read
+[SECURITY.md](SECURITY.md) before exposing a workspace or tunnel. Disabling shell
+tools and disabling writes are separate controls.
+
+## Quickstart: build and inspect the fork
+
+Use Node.js 20+ and npm. The lockfile-based install can run package lifecycle
+scripts; review dependencies in a trusted development checkout first.
+
+```sh
+git clone https://github.com/hsoliwal/codexpro.git
+cd codexpro
+npm ci
+npm run build
+npm run analysis:smoke
+```
+
+These are source-checked commands, not a test result from this README update.
+`npm test` also builds the Camel/KIE sidecar and therefore needs Java 17 and Maven.
+Do not interpret a TypeScript or analysis-only pass as validation of tunnels,
+authentication, write operations, the Java sidecar, or local inference.
+
+## Compact cheat sheet
+
+| Goal | Command or MCP tool | What to inspect |
+| --- | --- | --- |
+| Check local prerequisites | `node scripts/codexpro.mjs doctor` | The local checkout, version and dependencies |
+| Build TypeScript | `npm run build` | Compiler result |
+| Focus on analysis | `npm run analysis:smoke` / `npm run analysis:cli-smoke` | Bounded analysis fixtures |
+| Run aggregate smoke path | `npm test` | Sidecar build + TypeScript + smoke requirements |
+| Inspect a workspace | `inspect_workspace` | Coverage, warnings, fingerprint and cache |
+| Review edits | `show_changes` | Actual diff, related tests and verification suggestions |
+
+### Worked interpretation: two edges do not prove two callers
+
+`inspectWorkspace()` inventories files, extracts symbols/imports, then calls
+[`buildRelationships()`](src/analysis/graph.ts). Imports from a file classified
+as a test produce `tests` edges; other imports produce `imports` edges, up to the
+configured limit. If a result reports two relationships and truncation, report
+“two relationships found within this scan,” then inspect warnings and remaining
+scope. The relationship cap is separate from the inventory/extraction truncation flag,
+so `coverage.truncated: false` does not guarantee that every edge was retained.
+Inspect the configured relationship limit as well. These edges do not prove
+dynamic dispatch or complete language semantics. Use the relevant compiler/tests
+to verify a change.
+
+## Continue with the right guide
+
+- [Developer field guide](docs/DEVELOPER_GUIDE.md): source walkthrough, checks and diagnostics
+- [CPU-DAG contract](docs/camel-kie-cpu-dag.md): admission, execution and receipt boundaries
+- [Chrome2api integration](docs/chrome2api.md): bounded local inference contract
+- [Contribution guide](CONTRIBUTING.md) and [security policy](SECURITY.md): change and exposure review
+
+The original project README, attribution and licensing information follow intact.
+<!-- fork-homepage-guide:end -->
+
+---
+
+## Explore this fork
+
+Start with the [developer field guide and command cheat sheet](docs/DEVELOPER_GUIDE.md) for workspace-analysis concepts, a worked source walkthrough, build checks, and security boundaries.
+
 ## M3 direction in this fork
 
 M3 is based on the idea that shared immutable structure and indexed metadata can
