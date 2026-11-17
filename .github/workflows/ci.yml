@@ -34,7 +34,7 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
           cache: maven
           cache-dependency-path: camel-cpu-dag/pom.xml
 
@@ -61,3 +61,4 @@ jobs:
 
       - name: Audit Dependencies
         run: npm audit --audit-level=high
+
